@@ -1,0 +1,45 @@
+#!/bin/bash
+# crev-popup: Run crev in a tmux popup and output the review JSON
+#
+# Usage: crev-popup [directory]
+#
+# Exit behavior:
+#   - If user submits review (a/s): outputs JSON to stdout
+#   - If user cancels (q): outputs nothing, exits with code 0
+#
+# This allows Claude Code to distinguish between:
+#   - Submitted review: process the JSON feedback
+#   - Cancelled review: no action needed
+
+set -e
+
+REVIEW_FILE=$(mktemp /tmp/crev-review.XXXXXX.json)
+trap "rm -f $REVIEW_FILE" EXIT
+
+# Check if we're in tmux
+if [ -z "$TMUX" ]; then
+    echo "ERROR: Not running inside tmux" >&2
+    echo "Please run Claude Code inside tmux to use the review popup." >&2
+    exit 1
+fi
+
+# Get the directory to review (default: current directory)
+REVIEW_DIR="${1:-$(pwd)}"
+
+# Run crev in a tmux popup
+# -E: close popup when command exits
+# -w/-h: 90% width/height
+# -d: start in the specified directory
+tmux display-popup -E -w 90% -h 90% -d "$REVIEW_DIR" \
+    "crev -o '$REVIEW_FILE'; exit 0"
+
+# Check if review was submitted (file exists and has content)
+if [ -s "$REVIEW_FILE" ]; then
+    # Review was submitted - output the JSON
+    echo "=== CREV REVIEW SUBMITTED ==="
+    cat "$REVIEW_FILE"
+    echo "=== END REVIEW ==="
+fi
+
+# If file is empty or doesn't exist, user cancelled - output nothing
+# This is intentional: no output = no review to process

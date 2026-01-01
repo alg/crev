@@ -4,11 +4,18 @@
 build:
 	go build -o crev ./cmd/crev
 
-# Install to ~/.local/bin
+# Install to skill directory with symlinks in ~/.local/bin
+SKILL_DIR := ~/.claude/skills/review
+
 install: build
-	mkdir -p ~/.local/bin
-	cp crev ~/.local/bin/
-	@echo "Installed crev to ~/.local/bin/crev"
+	mkdir -p ~/.local/bin $(SKILL_DIR)
+	cp crev $(SKILL_DIR)/
+	cp claude-skill/SKILL.md $(SKILL_DIR)/
+	cp claude-skill/crev-popup $(SKILL_DIR)/
+	chmod +x $(SKILL_DIR)/crev-popup
+	ln -sf $(SKILL_DIR)/crev ~/.local/bin/crev
+	ln -sf $(SKILL_DIR)/crev-popup ~/.local/bin/crev-popup
+	@echo "Installed crev to $(SKILL_DIR)"
 
 # Clean build artifacts
 clean:
