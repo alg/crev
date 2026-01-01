@@ -85,8 +85,8 @@ func DefaultKeyMap() KeyMap {
 			key.WithHelp("G", "go to bottom"),
 		),
 		Comment: key.NewBinding(
-			key.WithKeys("c"),
-			key.WithHelp("c", "comment"),
+			key.WithKeys("i"),
+			key.WithHelp("i", "comment"),
 		),
 		DeleteComment: key.NewBinding(
 			key.WithKeys("d"),
@@ -121,20 +121,20 @@ func DefaultKeyMap() KeyMap {
 			key.WithHelp("esc", "cancel"),
 		),
 		Severity1: key.NewBinding(
-			key.WithKeys("1"),
-			key.WithHelp("1", "suggestion"),
+			key.WithKeys("ctrl+1", "f1"),
+			key.WithHelp("ctrl+1", "suggestion"),
 		),
 		Severity2: key.NewBinding(
-			key.WithKeys("2"),
-			key.WithHelp("2", "question"),
+			key.WithKeys("ctrl+2", "f2"),
+			key.WithHelp("ctrl+2", "question"),
 		),
 		Severity3: key.NewBinding(
-			key.WithKeys("3"),
-			key.WithHelp("3", "concern"),
+			key.WithKeys("ctrl+3", "f3"),
+			key.WithHelp("ctrl+3", "concern"),
 		),
 		Severity4: key.NewBinding(
-			key.WithKeys("4"),
-			key.WithHelp("4", "blocker"),
+			key.WithKeys("ctrl+4", "f4"),
+			key.WithHelp("ctrl+4", "blocker"),
 		),
 		NextSeverity: key.NewBinding(
 			key.WithKeys("tab"),

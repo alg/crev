@@ -18,9 +18,10 @@ type Mode int
 const (
 	ModeFileList Mode = iota
 	ModeDiffView
-	ModeCommentInput
+	ModeCommentEdit
 	ModeHelp
 	ModeSummaryInput
+	ModeQuitConfirm
 )
 
 // Model is the main application model
@@ -115,12 +116,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateFileList(msg)
 		case ModeDiffView:
 			return m.updateDiffView(msg)
-		case ModeCommentInput:
-			return m.updateCommentInput(msg)
+		case ModeCommentEdit:
+			return m.updateCommentEdit(msg)
 		case ModeSummaryInput:
 			return m.updateSummaryInput(msg)
 		case ModeHelp:
 			return m.updateHelp(msg)
+		case ModeQuitConfirm:
+			return m.updateQuitConfirm(msg)
 		}
 
 	case tea.WindowSizeMsg:
@@ -138,8 +141,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m Model) updateFileList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
-	case key.Matches(msg, m.keys.Quit):
-		return m, tea.Quit
+	case key.Matches(msg, m.keys.Quit), key.Matches(msg, m.keys.Cancel):
+		m.previousMode = m.mode
+		m.mode = ModeQuitConfirm
+		return m, nil
 
 	case key.Matches(msg, m.keys.Down):
 		if m.fileIndex < len(m.diff.Files)-1 {
@@ -191,8 +196,13 @@ func (m Model) updateDiffView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	totalLines := m.totalLinesInFile(file)
 
 	switch {
-	case key.Matches(msg, m.keys.Quit), key.Matches(msg, m.keys.Left):
+	case key.Matches(msg, m.keys.Cancel), key.Matches(msg, m.keys.Left):
 		m.mode = ModeFileList
+
+	case key.Matches(msg, m.keys.Quit):
+		m.previousMode = m.mode
+		m.mode = ModeQuitConfirm
+		return m, nil
 
 	case key.Matches(msg, m.keys.Down):
 		if m.lineIndex < totalLines-1 {
@@ -245,7 +255,7 @@ func (m Model) updateDiffView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case key.Matches(msg, m.keys.EditComment):
 		m.editCommentAtCursor()
-		if m.mode == ModeCommentInput {
+		if m.mode == ModeCommentEdit {
 			return m, textarea.Blink
 		}
 
@@ -271,29 +281,15 @@ func (m Model) updateDiffView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) updateCommentInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m Model) updateCommentEdit(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case key.Matches(msg, m.keys.Cancel):
-		m.mode = ModeDiffView
-		m.commentTextarea.Reset()
-		m.editingCommentIndex = -1
-		return m, nil
-
-	case key.Matches(msg, m.keys.Confirm):
+		// Esc saves and exits comment editing
 		m.saveComment()
 		m.mode = ModeDiffView
 		m.commentTextarea.Reset()
 		m.editingCommentIndex = -1
 		return m, nil
-
-	case key.Matches(msg, m.keys.Severity1):
-		m.commentSeverity = review.SeveritySuggestion
-	case key.Matches(msg, m.keys.Severity2):
-		m.commentSeverity = review.SeverityQuestion
-	case key.Matches(msg, m.keys.Severity3):
-		m.commentSeverity = review.SeverityConcern
-	case key.Matches(msg, m.keys.Severity4):
-		m.commentSeverity = review.SeverityBlocker
 
 	case key.Matches(msg, m.keys.NextSeverity):
 		m.cycleSeverity(1)
@@ -301,6 +297,7 @@ func (m Model) updateCommentInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.cycleSeverity(-1)
 
 	default:
+		// All other keys (including Enter) go to textarea
 		var cmd tea.Cmd
 		m.commentTextarea, cmd = m.commentTextarea.Update(msg)
 		return m, cmd
@@ -337,6 +334,16 @@ func (m Model) updateHelp(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m Model) updateQuitConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "y", "Y":
+		return m, tea.Quit
+	case "n", "N", "esc":
+		m.mode = m.previousMode
+	}
+	return m, nil
+}
+
 // View renders the UI
 func (m Model) View() string {
 	if !m.ready {
@@ -346,10 +353,10 @@ func (m Model) View() string {
 	switch m.mode {
 	case ModeHelp:
 		return m.viewHelp()
-	case ModeCommentInput:
-		return m.viewWithModal(m.viewCommentModal())
 	case ModeSummaryInput:
 		return m.viewWithModal(m.viewSummaryModal())
+	case ModeQuitConfirm:
+		return m.viewWithModal(m.viewQuitConfirmModal())
 	default:
 		return m.viewMain()
 	}
@@ -360,74 +367,132 @@ func (m Model) viewMain() string {
 	title := titleStyle.Width(m.width).Render(fmt.Sprintf(" crev - Code Review (%d files, %d comments)",
 		len(m.diff.Files), m.review.CommentCount()))
 
+	// Status bar
+	statusBar := m.viewStatusBar()
+
+	// Calculate content height
+	commentPaneHeight := 0
+	if m.mode == ModeDiffView || m.mode == ModeCommentEdit {
+		commentPaneHeight = 6 // Height for comment pane
+	}
+	contentHeight := m.height - 3 - commentPaneHeight // title + status bar + margins
+
 	// Main content
 	var content string
-	contentHeight := m.height - 4 // title + status bar + margins
-
 	switch m.mode {
 	case ModeFileList:
 		content = m.viewFileList(contentHeight)
-	case ModeDiffView:
-		content = m.viewDiffView(contentHeight)
+	case ModeDiffView, ModeCommentEdit:
+		diffContent := m.viewDiffView(contentHeight)
+		commentPane := m.viewCommentPane()
+		content = lipgloss.JoinVertical(lipgloss.Left, diffContent, commentPane)
 	}
-
-	// Status bar
-	statusBar := m.viewStatusBar()
 
 	return lipgloss.JoinVertical(lipgloss.Left, title, content, statusBar)
 }
 
+func (m Model) viewCommentPane() string {
+	// Get current line info
+	lineInfo := m.getCurrentLineInfo()
+
+	var header string
+	var body string
+
+	if lineInfo == nil {
+		header = helpStyle.Render("No line selected")
+		body = ""
+	} else {
+		file := m.currentFile()
+		fileName := ""
+		if file != nil {
+			fileName = file.Path
+		}
+
+		// Check if there's a comment on this line
+		var existingComment *review.Comment
+		for i := range m.review.Comments {
+			c := &m.review.Comments[i]
+			if c.File == fileName && c.LineStart == lineInfo.lineNum && c.Side == lineInfo.side {
+				existingComment = c
+				break
+			}
+		}
+
+		if m.mode == ModeCommentEdit {
+			// Editing mode - show textarea
+			severityLabel := SeverityStyle(string(m.commentSeverity)).Render(
+				fmt.Sprintf("[%s]", m.commentSeverity.Label()))
+			header = fmt.Sprintf("Line %d %s  (Tab: severity, Esc: save)",
+				lineInfo.lineNum, severityLabel)
+			body = m.commentTextarea.View()
+		} else if existingComment != nil {
+			// Show existing comment
+			severityLabel := SeverityStyle(string(existingComment.Severity)).Render(
+				fmt.Sprintf("[%s]", existingComment.Severity.Label()))
+			header = fmt.Sprintf("Line %d %s  (i: edit, d: delete)", lineInfo.lineNum, severityLabel)
+			body = existingComment.Text
+		} else {
+			// No comment on this line
+			header = fmt.Sprintf("Line %d  (i: add comment)", lineInfo.lineNum)
+			body = helpStyle.Render("No comment on this line")
+		}
+	}
+
+	headerStyled := lipgloss.NewStyle().Bold(true).Foreground(colorPrimary).Render(header)
+
+	pane := lipgloss.JoinVertical(lipgloss.Left, headerStyled, body)
+
+	return lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(colorSecondary).
+		Padding(0, 1).
+		Width(m.width - 4).
+		Height(4).
+		Render(pane)
+}
+
 func (m Model) viewStatusBar() string {
 	var status string
+	var help string
 
 	switch m.mode {
 	case ModeFileList:
 		status = fmt.Sprintf(" %d/%d files | ", m.fileIndex+1, len(m.diff.Files))
+		help = helpKeyStyle.Render("?") + helpStyle.Render(" help  ")
+		help += helpKeyStyle.Render("l/Enter") + helpStyle.Render(" view  ")
+		help += helpKeyStyle.Render("a") + helpStyle.Render(" approve  ")
+		help += helpKeyStyle.Render("q") + helpStyle.Render(" quit")
 	case ModeDiffView:
 		file := m.currentFile()
 		if file != nil {
 			add, del := file.Stats()
 			status = fmt.Sprintf(" %s | +%d -%d | ", file.Path, add, del)
 		}
+		help = helpKeyStyle.Render("?") + helpStyle.Render(" help  ")
+		help += helpKeyStyle.Render("i") + helpStyle.Render(" comment  ")
+		help += helpKeyStyle.Render("a") + helpStyle.Render(" approve  ")
+		help += helpKeyStyle.Render("Esc") + helpStyle.Render(" back")
+	case ModeCommentEdit:
+		status = " EDITING COMMENT | "
+		help = helpKeyStyle.Render("Tab") + helpStyle.Render(" severity  ")
+		help += helpKeyStyle.Render("Esc") + helpStyle.Render(" save & exit")
 	}
-
-	help := helpKeyStyle.Render("?") + helpStyle.Render(" help  ")
-	help += helpKeyStyle.Render("c") + helpStyle.Render(" comment  ")
-	help += helpKeyStyle.Render("a") + helpStyle.Render(" approve  ")
-	help += helpKeyStyle.Render("s") + helpStyle.Render(" submit  ")
-	help += helpKeyStyle.Render("q") + helpStyle.Render(" quit")
 
 	return statusBarStyle.Width(m.width).Render(status + help)
 }
 
 func (m Model) viewWithModal(modal string) string {
-	base := m.viewMain()
-	// Center the modal
-	modalWidth := lipgloss.Width(modal)
-	modalHeight := lipgloss.Height(modal)
-
-	x := (m.width - modalWidth) / 2
-	y := (m.height - modalHeight) / 2
-
-	return placeOverlay(x, y, modal, base)
-}
-
-func (m Model) viewCommentModal() string {
-	severities := review.AllSeverities()
-	var pills []string
-	for _, s := range severities {
-		pill := SeverityPillStyle(string(s), s == m.commentSeverity).Render(
-			fmt.Sprintf("%s %s", s.Shortcut(), s.Label()))
-		pills = append(pills, pill)
-	}
-
-	title := modalTitleStyle.Render("Add Comment")
-	severityRow := lipgloss.JoinHorizontal(lipgloss.Center, pills...)
-	textarea := m.commentTextarea.View()
-	hint := helpStyle.Render("Enter to save, Esc to cancel, 1-4 to set severity")
-
-	content := lipgloss.JoinVertical(lipgloss.Left, title, severityRow, "", textarea, "", hint)
-	return modalStyle.Render(content)
+	// Use lipgloss.Place to center the modal on a full-screen background
+	// This properly handles ANSI escape codes unlike character-by-character overlay
+	return lipgloss.Place(
+		m.width,
+		m.height,
+		lipgloss.Center,
+		lipgloss.Center,
+		modal,
+		lipgloss.WithWhitespaceChars(" "),
+		lipgloss.WithWhitespaceForeground(lipgloss.Color("236")),
+	)
 }
 
 func (m Model) viewSummaryModal() string {
@@ -450,6 +515,16 @@ func (m Model) viewSummaryModal() string {
 	return modalStyle.Render(content)
 }
 
+func (m Model) viewQuitConfirmModal() string {
+	title := modalTitleStyle.Render("Quit without submitting?")
+	body := fmt.Sprintf("You have %d comments that will be lost.", m.review.CommentCount())
+	hint := helpKeyStyle.Render("y") + helpStyle.Render(" quit  ") +
+		helpKeyStyle.Render("n/Esc") + helpStyle.Render(" cancel")
+
+	content := lipgloss.JoinVertical(lipgloss.Left, title, "", body, "", hint)
+	return modalStyle.Render(content)
+}
+
 func (m Model) viewHelp() string {
 	title := titleStyle.Width(m.width).Render(" crev - Help")
 
@@ -460,22 +535,20 @@ Navigation:
   h/l, left/right Navigate files
   ctrl+d/u        Page down/up
   g/G             Go to top/bottom
+  Esc             Go back / Quit
 
 Actions:
-  c               Add comment on current line
+  i               Add/edit comment on current line
   d               Delete comment on current line
-  e               Edit comment on current line
 
-Comment Modal:
-  1-4             Set severity (suggestion/question/concern/blocker)
+Editing Comment:
   Tab             Cycle severity
-  Enter           Save comment
-  Esc             Cancel
+  Enter           New line
+  Esc             Save and exit
 
 Submit:
   a               Approve and submit
   s               Submit without approval
-  q               Quit without submitting
 
 Press Esc or ? to close this help.
 `
@@ -501,7 +574,17 @@ func (m *Model) totalLinesInFile(file *diff.File) int {
 }
 
 func (m *Model) ensureLineVisible() {
-	viewHeight := m.height - 6
+	// Calculate visible height: total height - title - status - comment pane - borders
+	commentPaneHeight := 0
+	if m.mode == ModeDiffView || m.mode == ModeCommentEdit {
+		commentPaneHeight = 8 // comment pane + borders
+	}
+	viewHeight := m.height - 5 - commentPaneHeight
+
+	if viewHeight < 1 {
+		viewHeight = 1
+	}
+
 	if m.lineIndex < m.scrollOffset {
 		m.scrollOffset = m.lineIndex
 	} else if m.lineIndex >= m.scrollOffset+viewHeight {
@@ -565,7 +648,7 @@ func (m *Model) startComment() {
 	m.commentTextarea.Reset()
 	m.commentTextarea.Focus()
 	m.editingCommentIndex = -1
-	m.mode = ModeCommentInput
+	m.mode = ModeCommentEdit
 }
 
 type lineInfo struct {
@@ -683,7 +766,7 @@ func (m *Model) editCommentAtCursor() {
 			m.commentTextarea.SetValue(c.Text)
 			m.commentTextarea.Focus()
 			m.editingCommentIndex = i
-			m.mode = ModeCommentInput
+			m.mode = ModeCommentEdit
 			return
 		}
 	}
@@ -710,32 +793,3 @@ func (m Model) WasSubmitted() bool {
 	return m.submitted
 }
 
-// Helper function to place an overlay on top of base content
-func placeOverlay(x, y int, overlay, base string) string {
-	baseLines := strings.Split(base, "\n")
-	overlayLines := strings.Split(overlay, "\n")
-
-	for i, overlayLine := range overlayLines {
-		baseLineIdx := y + i
-		if baseLineIdx >= 0 && baseLineIdx < len(baseLines) {
-			baseLine := baseLines[baseLineIdx]
-			baseRunes := []rune(baseLine)
-
-			// Pad base line if needed
-			for len(baseRunes) < x+len([]rune(overlayLine)) {
-				baseRunes = append(baseRunes, ' ')
-			}
-
-			// Replace section with overlay
-			overlayRunes := []rune(overlayLine)
-			for j, r := range overlayRunes {
-				if x+j < len(baseRunes) {
-					baseRunes[x+j] = r
-				}
-			}
-			baseLines[baseLineIdx] = string(baseRunes)
-		}
-	}
-
-	return strings.Join(baseLines, "\n")
-}

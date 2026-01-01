@@ -124,7 +124,7 @@ func (m Model) renderDiffLine(file *diff.File, hunkIdx int, line diff.Line, sele
 	}
 
 	// Check for comment on this line
-	commentMarker := ""
+	hasComment := false
 	lineNum := line.NewNum
 	side := "new"
 	if line.Type == diff.LineRemoved {
@@ -134,20 +134,26 @@ func (m Model) renderDiffLine(file *diff.File, hunkIdx int, line diff.Line, sele
 
 	for _, c := range m.review.Comments {
 		if c.File == file.Path && c.LineStart == lineNum && c.Side == side {
-			commentMarker = commentMarkerStyle.Render(" *")
+			hasComment = true
 			break
 		}
 	}
 
+	// Comment indicator at the start
+	commentIndicator := "  "
+	if hasComment {
+		commentIndicator = commentMarkerStyle.Render(">>")
+	}
+
 	// Truncate content if too long
 	content := line.Content
-	maxContentLen := m.width - 20 - len(commentMarker)
+	maxContentLen := m.width - 24
 	if len(content) > maxContentLen {
 		content = content[:maxContentLen-3] + "..."
 	}
 
 	// Build the line
-	rendered := lineNums + " " + contentStyle.Render(prefix+content) + commentMarker
+	rendered := commentIndicator + " " + lineNums + " " + contentStyle.Render(prefix+content)
 
 	// Apply selection highlight
 	if selected {
