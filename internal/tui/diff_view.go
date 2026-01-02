@@ -8,12 +8,21 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// viewDiffView renders the diff view for the current file
-func (m Model) viewDiffView(height int) string {
+// viewDiffViewWithWidth renders the diff view for the current file with specified width
+func (m Model) viewDiffViewWithWidth(height int, width int) string {
 	file := m.currentFile()
+
+	// Determine border color based on focus
+	borderColor := colorSecondary
+	if m.focus == FocusMain {
+		borderColor = colorPrimary
+	}
+
 	if file == nil {
 		return lipgloss.NewStyle().
-			Width(m.width).
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(borderColor).
+			Width(width - 2).
 			Height(height).
 			Align(lipgloss.Center, lipgloss.Center).
 			Foreground(colorSecondary).
@@ -22,7 +31,9 @@ func (m Model) viewDiffView(height int) string {
 
 	if file.IsBinary {
 		return lipgloss.NewStyle().
-			Width(m.width).
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(borderColor).
+			Width(width - 2).
 			Height(height).
 			Align(lipgloss.Center, lipgloss.Center).
 			Foreground(colorSecondary).
@@ -31,7 +42,9 @@ func (m Model) viewDiffView(height int) string {
 
 	if len(file.Hunks) == 0 {
 		return lipgloss.NewStyle().
-			Width(m.width).
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(borderColor).
+			Width(width - 2).
 			Height(height).
 			Align(lipgloss.Center, lipgloss.Center).
 			Foreground(colorSecondary).
@@ -45,7 +58,7 @@ func (m Model) viewDiffView(height int) string {
 	// Build all lines first
 	for hunkIdx, hunk := range file.Hunks {
 		// Hunk header
-		header := m.renderHunkHeader(hunk, lineNum == m.lineIndex)
+		header := m.renderHunkHeaderWithWidth(hunk, lineNum == m.lineIndex, width)
 		if lineNum >= m.scrollOffset && lineNum < m.scrollOffset+viewHeight {
 			lines = append(lines, header)
 		}
@@ -53,7 +66,7 @@ func (m Model) viewDiffView(height int) string {
 
 		// Hunk lines
 		for _, line := range hunk.Lines {
-			rendered := m.renderDiffLine(file, hunkIdx, line, lineNum == m.lineIndex)
+			rendered := m.renderDiffLineWithWidth(file, hunkIdx, line, lineNum == m.lineIndex, width)
 			if lineNum >= m.scrollOffset && lineNum < m.scrollOffset+viewHeight {
 				lines = append(lines, rendered)
 			}
@@ -74,28 +87,40 @@ func (m Model) viewDiffView(height int) string {
 		content += "\n" + helpStyle.Render(scrollInfo)
 	}
 
-	return diffViewStyle.
-		Width(m.width - 4).
+	return lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(borderColor).
+		Width(width - 2).
 		Height(height).
 		Render(content)
 }
 
-func (m Model) renderHunkHeader(hunk diff.Hunk, selected bool) string {
-	style := hunkHeaderStyle
-	if selected {
-		style = style.Background(lipgloss.Color("237"))
-	}
+func (m Model) renderHunkHeaderWithWidth(hunk diff.Hunk, selected bool, width int) string {
 	// Truncate header if too long
 	header := hunk.Header
-	maxLen := m.width - 10
+	maxLen := width - 10
+	if maxLen < 20 {
+		maxLen = 20
+	}
 	if len(header) > maxLen {
 		header = header[:maxLen-3] + "..."
 	}
-	return style.Width(m.width - 8).Render(header)
+
+	lineWidth := width - 2
+	style := lipgloss.NewStyle().
+		Foreground(colorHunk).
+		Bold(true).
+		Width(lineWidth)
+
+	if selected {
+		style = style.Background(lipgloss.Color("236"))
+	}
+
+	return style.Render(header)
 }
 
-func (m Model) renderDiffLine(file *diff.File, hunkIdx int, line diff.Line, selected bool) string {
-	// Line numbers
+func (m Model) renderDiffLineWithWidth(file *diff.File, hunkIdx int, line diff.Line, selected bool, width int) string {
+	// Line numbers (plain text)
 	oldNum := "    "
 	newNum := "    "
 	if line.OldNum > 0 {
@@ -105,22 +130,15 @@ func (m Model) renderDiffLine(file *diff.File, hunkIdx int, line diff.Line, sele
 		newNum = fmt.Sprintf("%4d", line.NewNum)
 	}
 
-	lineNums := lineNumStyle.Render(oldNum) + " " + lineNumStyle.Render(newNum)
-
-	// Line prefix and content style
+	// Line prefix
 	var prefix string
-	var contentStyle lipgloss.Style
-
 	switch line.Type {
 	case diff.LineAdded:
 		prefix = "+"
-		contentStyle = lineAddedStyle
 	case diff.LineRemoved:
 		prefix = "-"
-		contentStyle = lineRemovedStyle
 	default:
 		prefix = " "
-		contentStyle = lineContextStyle
 	}
 
 	// Check for comment on this line
@@ -139,26 +157,50 @@ func (m Model) renderDiffLine(file *diff.File, hunkIdx int, line diff.Line, sele
 		}
 	}
 
-	// Comment indicator at the start
+	// Comment indicator
 	commentIndicator := "  "
 	if hasComment {
-		commentIndicator = commentMarkerStyle.Render(">>")
+		commentIndicator = ">>"
 	}
 
+	// Replace tabs with spaces for consistent width
+	content := strings.ReplaceAll(line.Content, "\t", "    ")
+
 	// Truncate content if too long
-	content := line.Content
-	maxContentLen := m.width - 24
+	maxContentLen := width - 20
+	if maxContentLen < 10 {
+		maxContentLen = 10
+	}
 	if len(content) > maxContentLen {
 		content = content[:maxContentLen-3] + "..."
 	}
 
-	// Build the line
-	rendered := commentIndicator + " " + lineNums + " " + contentStyle.Render(prefix+content)
+	// Build plain text line
+	plainLine := fmt.Sprintf("%s %s %s %s%s", commentIndicator, oldNum, newNum, prefix, content)
 
-	// Apply selection highlight
-	if selected {
-		rendered = lineSelectedStyle.Width(m.width - 8).Render(rendered)
+	// Determine text color based on line type
+	var fg lipgloss.Color
+	switch line.Type {
+	case diff.LineAdded:
+		fg = colorAdded
+	case diff.LineRemoved:
+		fg = colorRemoved
+	default:
+		fg = colorContext
 	}
 
-	return rendered
+	// Build style with fixed width - this ensures full-line background
+	lineWidth := width - 2
+	style := lipgloss.NewStyle().
+		Foreground(fg).
+		Width(lineWidth)
+
+	if hasComment {
+		style = style.Bold(true)
+	}
+	if selected {
+		style = style.Background(lipgloss.Color("236"))
+	}
+
+	return style.Render(plainLine)
 }

@@ -16,6 +16,9 @@ type KeyMap struct {
 	Home      key.Binding
 	End       key.Binding
 
+	// Tree navigation
+	ToggleExpand key.Binding
+
 	// Actions
 	Comment    key.Binding
 	DeleteComment key.Binding
@@ -57,8 +60,12 @@ func DefaultKeyMap() KeyMap {
 			key.WithHelp("h/left", "prev file"),
 		),
 		Right: key.NewBinding(
-			key.WithKeys("l", "right", "enter"),
-			key.WithHelp("l/right", "next file"),
+			key.WithKeys("l", "right"),
+			key.WithHelp("l/right", "focus main"),
+		),
+		ToggleExpand: key.NewBinding(
+			key.WithKeys("enter", " "),
+			key.WithHelp("enter/space", "expand/select"),
 		),
 		PrevHunk: key.NewBinding(
 			key.WithKeys("K", "shift+up"),

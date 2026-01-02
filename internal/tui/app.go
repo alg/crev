@@ -16,12 +16,19 @@ import (
 type Mode int
 
 const (
-	ModeFileList Mode = iota
-	ModeDiffView
+	ModeNormal Mode = iota // Normal navigation (sidebar + diff view)
 	ModeCommentEdit
 	ModeHelp
 	ModeSummaryInput
 	ModeQuitConfirm
+)
+
+// Focus represents which pane has focus
+type Focus int
+
+const (
+	FocusSidebar Focus = iota
+	FocusMain
 )
 
 // Model is the main application model
@@ -33,11 +40,16 @@ type Model struct {
 	// UI state
 	mode          Mode
 	previousMode  Mode
+	focus         Focus
 	width         int
 	height        int
 	ready         bool
 
-	// File list state
+	// Sidebar state
+	tree         *FileTree
+	sidebarWidth int
+
+	// File selection state
 	fileIndex int
 
 	// Diff view state
@@ -84,7 +96,10 @@ func NewModel(d *diff.Diff, outputPath string) Model {
 		diff:                d,
 		review:              review.NewReview(),
 		keys:                DefaultKeyMap(),
-		mode:                ModeFileList,
+		mode:                ModeNormal,
+		focus:               FocusSidebar,
+		tree:                BuildFileTree(d.Files),
+		sidebarWidth:        30,
 		fileIndex:           0,
 		lineIndex:           0,
 		commentTextarea:     ta,
@@ -111,11 +126,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 
+		// Modal modes take priority
 		switch m.mode {
-		case ModeFileList:
-			return m.updateFileList(msg)
-		case ModeDiffView:
-			return m.updateDiffView(msg)
 		case ModeCommentEdit:
 			return m.updateCommentEdit(msg)
 		case ModeSummaryInput:
@@ -124,6 +136,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateHelp(msg)
 		case ModeQuitConfirm:
 			return m.updateQuitConfirm(msg)
+		}
+
+		// Focus-based navigation (normal mode)
+		switch m.focus {
+		case FocusSidebar:
+			return m.updateSidebar(msg)
+		case FocusMain:
+			return m.updateDiffView(msg)
 		}
 
 	case tea.WindowSizeMsg:
@@ -139,7 +159,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-func (m Model) updateFileList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m Model) updateSidebar(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case key.Matches(msg, m.keys.Quit), key.Matches(msg, m.keys.Cancel):
 		m.previousMode = m.mode
@@ -147,21 +167,33 @@ func (m Model) updateFileList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case key.Matches(msg, m.keys.Down):
-		if m.fileIndex < len(m.diff.Files)-1 {
-			m.fileIndex++
-		}
+		m.tree.MoveDown()
+		m.selectCurrentTreeNode()
 
 	case key.Matches(msg, m.keys.Up):
-		if m.fileIndex > 0 {
-			m.fileIndex--
-		}
+		m.tree.MoveUp()
+		m.selectCurrentTreeNode()
 
-	case key.Matches(msg, m.keys.Right), key.Matches(msg, m.keys.Confirm):
-		if len(m.diff.Files) > 0 {
-			m.mode = ModeDiffView
-			m.lineIndex = 0
-			m.hunkIndex = 0
-			m.scrollOffset = 0
+	case key.Matches(msg, m.keys.Right):
+		// Move focus to main area
+		m.focus = FocusMain
+
+	case key.Matches(msg, m.keys.ToggleExpand):
+		node := m.tree.SelectedNode()
+		if node != nil {
+			if node.Type == TreeNodeDir {
+				// Toggle directory expansion
+				m.tree.ToggleExpand()
+				// After toggling, select current node if it's a file
+				m.selectCurrentTreeNode()
+			} else {
+				// Select file and move to main
+				m.fileIndex = node.FileIndex
+				m.focus = FocusMain
+				m.lineIndex = 0
+				m.hunkIndex = 0
+				m.scrollOffset = 0
+			}
 		}
 
 	case key.Matches(msg, m.keys.Approve):
@@ -189,7 +221,7 @@ func (m Model) updateFileList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m Model) updateDiffView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	file := m.currentFile()
 	if file == nil {
-		m.mode = ModeFileList
+		m.focus = FocusSidebar
 		return m, nil
 	}
 
@@ -197,7 +229,8 @@ func (m Model) updateDiffView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch {
 	case key.Matches(msg, m.keys.Cancel), key.Matches(msg, m.keys.Left):
-		m.mode = ModeFileList
+		// Move focus back to sidebar
+		m.focus = FocusSidebar
 
 	case key.Matches(msg, m.keys.Quit):
 		m.previousMode = m.mode
@@ -239,11 +272,14 @@ func (m Model) updateDiffView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.ensureLineVisible()
 
 	case key.Matches(msg, m.keys.Right):
+		// Next file
 		if m.fileIndex < len(m.diff.Files)-1 {
 			m.fileIndex++
 			m.lineIndex = 0
 			m.hunkIndex = 0
 			m.scrollOffset = 0
+			// Sync tree selection
+			m.tree.SelectFileIndex(m.fileIndex)
 		}
 
 	case key.Matches(msg, m.keys.Comment):
@@ -286,7 +322,7 @@ func (m Model) updateCommentEdit(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, m.keys.Cancel):
 		// Esc saves and exits comment editing
 		m.saveComment()
-		m.mode = ModeDiffView
+		m.mode = ModeNormal
 		m.commentTextarea.Reset()
 		m.editingCommentIndex = -1
 		return m, nil
@@ -357,6 +393,8 @@ func (m Model) View() string {
 		return m.viewWithModal(m.viewSummaryModal())
 	case ModeQuitConfirm:
 		return m.viewWithModal(m.viewQuitConfirmModal())
+	case ModeCommentEdit:
+		return m.viewMain() // Comment edit is inline in diff view
 	default:
 		return m.viewMain()
 	}
@@ -370,28 +408,29 @@ func (m Model) viewMain() string {
 	// Status bar
 	statusBar := m.viewStatusBar()
 
-	// Calculate content height
-	commentPaneHeight := 0
-	if m.mode == ModeDiffView || m.mode == ModeCommentEdit {
-		commentPaneHeight = 6 // Height for comment pane
-	}
-	contentHeight := m.height - 3 - commentPaneHeight // title + status bar + margins
+	// Calculate heights
+	commentPaneHeight := 6 // Height for comment pane
+	totalContentHeight := m.height - 3 // title + status bar + margins
+	diffContentHeight := totalContentHeight - commentPaneHeight
 
-	// Main content
-	var content string
-	switch m.mode {
-	case ModeFileList:
-		content = m.viewFileList(contentHeight)
-	case ModeDiffView, ModeCommentEdit:
-		diffContent := m.viewDiffView(contentHeight)
-		commentPane := m.viewCommentPane()
-		content = lipgloss.JoinVertical(lipgloss.Left, diffContent, commentPane)
-	}
+	// Main content width (sidebar width includes its border)
+	mainWidth := m.width - m.sidebarWidth
 
-	return lipgloss.JoinVertical(lipgloss.Left, title, content, statusBar)
+	// Sidebar stretches full height
+	sidebar := m.viewSidebar(totalContentHeight)
+
+	// Main content (diff view + comment pane)
+	diffContent := m.viewDiffViewWithWidth(diffContentHeight, mainWidth)
+	commentPane := m.viewCommentPaneWithWidth(mainWidth)
+	mainContent := lipgloss.JoinVertical(lipgloss.Left, diffContent, commentPane)
+
+	// Horizontal layout: sidebar | main
+	body := lipgloss.JoinHorizontal(lipgloss.Top, sidebar, mainContent)
+
+	return lipgloss.JoinVertical(lipgloss.Left, title, body, statusBar)
 }
 
-func (m Model) viewCommentPane() string {
+func (m Model) viewCommentPaneWithWidth(width int) string {
 	// Get current line info
 	lineInfo := m.getCurrentLineInfo()
 
@@ -429,7 +468,7 @@ func (m Model) viewCommentPane() string {
 			// Show existing comment
 			severityLabel := SeverityStyle(string(existingComment.Severity)).Render(
 				fmt.Sprintf("[%s]", existingComment.Severity.Label()))
-			header = fmt.Sprintf("Line %d %s  (i: edit, d: delete)", lineInfo.lineNum, severityLabel)
+			header = fmt.Sprintf("Line %d %s  (e: edit, d: delete)", lineInfo.lineNum, severityLabel)
 			body = existingComment.Text
 		} else {
 			// No comment on this line
@@ -446,7 +485,7 @@ func (m Model) viewCommentPane() string {
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(colorSecondary).
 		Padding(0, 1).
-		Width(m.width - 4).
+		Width(width - 2).
 		Height(4).
 		Render(pane)
 }
@@ -455,27 +494,30 @@ func (m Model) viewStatusBar() string {
 	var status string
 	var help string
 
-	switch m.mode {
-	case ModeFileList:
-		status = fmt.Sprintf(" %d/%d files | ", m.fileIndex+1, len(m.diff.Files))
-		help = helpKeyStyle.Render("?") + helpStyle.Render(" help  ")
-		help += helpKeyStyle.Render("l/Enter") + helpStyle.Render(" view  ")
-		help += helpKeyStyle.Render("a") + helpStyle.Render(" approve  ")
-		help += helpKeyStyle.Render("q") + helpStyle.Render(" quit")
-	case ModeDiffView:
-		file := m.currentFile()
-		if file != nil {
-			add, del := file.Stats()
-			status = fmt.Sprintf(" %s | +%d -%d | ", file.Path, add, del)
-		}
-		help = helpKeyStyle.Render("?") + helpStyle.Render(" help  ")
-		help += helpKeyStyle.Render("i") + helpStyle.Render(" comment  ")
-		help += helpKeyStyle.Render("a") + helpStyle.Render(" approve  ")
-		help += helpKeyStyle.Render("Esc") + helpStyle.Render(" back")
-	case ModeCommentEdit:
+	// Show current file info
+	file := m.currentFile()
+	if file != nil {
+		add, del := file.Stats()
+		status = fmt.Sprintf(" %s | +%d -%d | ", file.Path, add, del)
+	} else {
+		status = fmt.Sprintf(" %d files | ", len(m.diff.Files))
+	}
+
+	// Show focus-specific help
+	if m.mode == ModeCommentEdit {
 		status = " EDITING COMMENT | "
 		help = helpKeyStyle.Render("Tab") + helpStyle.Render(" severity  ")
 		help += helpKeyStyle.Render("Esc") + helpStyle.Render(" save & exit")
+	} else if m.focus == FocusSidebar {
+		help = helpKeyStyle.Render("l/Enter") + helpStyle.Render(" select  ")
+		help += helpKeyStyle.Render("?") + helpStyle.Render(" help  ")
+		help += helpKeyStyle.Render("a") + helpStyle.Render(" approve  ")
+		help += helpKeyStyle.Render("q") + helpStyle.Render(" quit")
+	} else {
+		help = helpKeyStyle.Render("h") + helpStyle.Render(" sidebar  ")
+		help += helpKeyStyle.Render("i") + helpStyle.Render(" comment  ")
+		help += helpKeyStyle.Render("?") + helpStyle.Render(" help  ")
+		help += helpKeyStyle.Render("a") + helpStyle.Render(" approve")
 	}
 
 	return statusBarStyle.Width(m.width).Render(status + help)
@@ -530,15 +572,18 @@ func (m Model) viewHelp() string {
 
 	help := `
 Navigation:
-  j/k, up/down    Navigate lines
-  J/K             Navigate hunks
-  h/l, left/right Navigate files
+  h/l             Switch between sidebar and diff view
+  j/k, up/down    Navigate in current pane
+  J/K             Navigate hunks (in diff view)
   ctrl+d/u        Page down/up
   g/G             Go to top/bottom
-  Esc             Go back / Quit
 
-Actions:
-  i               Add/edit comment on current line
+Sidebar (Tree):
+  Enter/Space     Expand/collapse directory or select file
+
+Diff View:
+  i               Add comment on current line
+  e               Edit comment on current line
   d               Delete comment on current line
 
 Editing Comment:
@@ -549,6 +594,7 @@ Editing Comment:
 Submit:
   a               Approve and submit
   s               Submit without approval
+  q               Quit without submitting
 
 Press Esc or ? to close this help.
 `
@@ -564,6 +610,19 @@ func (m *Model) currentFile() *diff.File {
 	return nil
 }
 
+// selectCurrentTreeNode updates fileIndex when navigating to a file in the tree
+func (m *Model) selectCurrentTreeNode() {
+	node := m.tree.SelectedNode()
+	if node != nil && node.Type == TreeNodeFile && node.FileIndex >= 0 {
+		if m.fileIndex != node.FileIndex {
+			m.fileIndex = node.FileIndex
+			m.lineIndex = 0
+			m.hunkIndex = 0
+			m.scrollOffset = 0
+		}
+	}
+}
+
 func (m *Model) totalLinesInFile(file *diff.File) int {
 	total := 0
 	for _, hunk := range file.Hunks {
@@ -575,10 +634,8 @@ func (m *Model) totalLinesInFile(file *diff.File) int {
 
 func (m *Model) ensureLineVisible() {
 	// Calculate visible height: total height - title - status - comment pane - borders
-	commentPaneHeight := 0
-	if m.mode == ModeDiffView || m.mode == ModeCommentEdit {
-		commentPaneHeight = 8 // comment pane + borders
-	}
+	// Comment pane is always visible now
+	commentPaneHeight := 8 // comment pane + borders
 	viewHeight := m.height - 5 - commentPaneHeight
 
 	if viewHeight < 1 {
