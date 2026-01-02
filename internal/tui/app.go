@@ -85,12 +85,24 @@ func NewModel(d *diff.Diff, outputPath string) Model {
 	ta.CharLimit = 1000
 	ta.SetWidth(60)
 	ta.SetHeight(3)
+	ta.ShowLineNumbers = false
+	ta.Prompt = ""
+	ta.FocusedStyle.CursorLine = lipgloss.NewStyle()
+	ta.FocusedStyle.Base = lipgloss.NewStyle()
+	ta.BlurredStyle.CursorLine = lipgloss.NewStyle()
+	ta.BlurredStyle.Base = lipgloss.NewStyle()
 
 	sa := textarea.New()
 	sa.Placeholder = "Overall review summary (optional)..."
 	sa.CharLimit = 500
 	sa.SetWidth(60)
 	sa.SetHeight(2)
+	sa.ShowLineNumbers = false
+	sa.Prompt = ""
+	sa.FocusedStyle.CursorLine = lipgloss.NewStyle()
+	sa.FocusedStyle.Base = lipgloss.NewStyle()
+	sa.BlurredStyle.CursorLine = lipgloss.NewStyle()
+	sa.BlurredStyle.Base = lipgloss.NewStyle()
 
 	return Model{
 		diff:                d,
@@ -151,8 +163,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		m.ready = true
 
-		// Update textarea widths
-		m.commentTextarea.SetWidth(min(60, m.width-10))
+		// Update textarea widths to fill comment pane
+		// mainWidth = width - sidebarWidth, pane inner width = mainWidth - 4 (border + padding)
+		textareaWidth := m.width - m.sidebarWidth - 4
+		if textareaWidth < 20 {
+			textareaWidth = 20
+		}
+		m.commentTextarea.SetWidth(textareaWidth)
 		m.summaryTextarea.SetWidth(min(60, m.width-10))
 	}
 
