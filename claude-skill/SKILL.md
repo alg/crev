@@ -1,6 +1,7 @@
 ---
 name: review
 description: Request code review for uncommitted changes. Use when asking for review of AI-generated code, reviewing git diff, or when user says "review my changes", "let me review", or "I want to check the changes".
+allowed-tools: Bash(crev-popup)
 ---
 
 # Code Review Skill
@@ -9,7 +10,7 @@ Review uncommitted changes using the `crev` TUI in a tmux popup.
 
 ## Workflow
 
-1. **Summarize Changes**: Briefly list files modified and key changes
+1. **Stage changes**: Stage changes that were created, updated or deleted
 2. **Launch Review**: Run `crev-popup` to open crev in a tmux popup
 3. **Process Feedback**: Parse the JSON output and address comments
 
@@ -85,24 +86,4 @@ Thanks for the review! Here's my response to your comments:
 → Agreed, I've moved this to a separate `validate_with_retry()` function.
 
 I've made 2 changes based on your feedback. Would you like to review again, or shall we proceed?
-```
-
-## Keybindings Reference (for user assistance)
-
-```
-Navigation:
-  j/k         Navigate lines
-  J/K         Navigate hunks
-  h/l         Navigate files
-
-Actions:
-  c           Add comment on current line
-  d           Delete comment
-  e           Edit comment
-  1-4         Set severity (in comment modal)
-
-Submit:
-  a           Approve and submit
-  s           Submit without approval
-  q           Quit without submitting
 ```

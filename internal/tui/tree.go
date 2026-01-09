@@ -184,3 +184,18 @@ func (t *FileTree) MoveDown() {
 		t.SelectedIndex++
 	}
 }
+
+// MaxDisplayWidth calculates the minimum width needed to display all visible nodes
+// without truncation. Accounts for indentation, icon, spacing, and name.
+func (t *FileTree) MaxDisplayWidth() int {
+	maxWidth := 0
+	for _, node := range t.FlatList {
+		// indent (2 chars per depth) + icon (1) + space (1) + name
+		width := node.Depth*2 + 2 + len(node.Name)
+		if width > maxWidth {
+			maxWidth = width
+		}
+	}
+	// Add space for border (2) and some padding (2)
+	return maxWidth + 4
+}

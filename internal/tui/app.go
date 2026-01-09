@@ -163,6 +163,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		m.ready = true
 
+		// Calculate sidebar width: fit content but max 25% of window
+		m.updateSidebarWidth()
+
 		// Update textarea widths to fill comment pane
 		// mainWidth = width - sidebarWidth, pane inner width = mainWidth - 4 (border + padding)
 		textareaWidth := m.width - m.sidebarWidth - 4
@@ -865,5 +868,26 @@ func (m *Model) GetReview() *review.Review {
 // WasSubmitted returns true if the review was submitted
 func (m Model) WasSubmitted() bool {
 	return m.submitted
+}
+
+// updateSidebarWidth calculates optimal sidebar width based on content,
+// constrained to max 25% of window width and min 20 characters
+func (m *Model) updateSidebarWidth() {
+	if m.tree == nil {
+		m.sidebarWidth = 20
+		return
+	}
+
+	contentWidth := m.tree.MaxDisplayWidth()
+	maxWidth := m.width / 5 // 20% of window
+	minWidth := 20
+
+	m.sidebarWidth = contentWidth
+	if m.sidebarWidth > maxWidth {
+		m.sidebarWidth = maxWidth
+	}
+	if m.sidebarWidth < minWidth {
+		m.sidebarWidth = minWidth
+	}
 }
 

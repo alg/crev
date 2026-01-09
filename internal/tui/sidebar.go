@@ -51,6 +51,7 @@ func (m Model) renderSidebarBox(content string, height int) string {
 	return lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(borderColor).
+		Padding(0, 1).
 		Width(m.sidebarWidth - 2).
 		Height(height).
 		Render(content)
@@ -58,7 +59,7 @@ func (m Model) renderSidebarBox(content string, height int) string {
 
 // renderTreeNode renders a single tree node
 func (m Model) renderTreeNode(node *TreeNode, selected bool) string {
-	innerWidth := m.sidebarWidth - 2 // Account for border only
+	innerWidth := m.sidebarWidth - 4 // Account for border (2) and padding (2)
 	if innerWidth < 10 {
 		innerWidth = 10
 	}
@@ -70,9 +71,9 @@ func (m Model) renderTreeNode(node *TreeNode, selected bool) string {
 	var icon string
 	if node.Type == TreeNodeDir {
 		if node.Expanded {
-			icon = "v"
+			icon = "\uF07C" // nf-fa-folder_open
 		} else {
-			icon = ">"
+			icon = "\uF07B" // nf-fa-folder
 		}
 	} else {
 		// Plain status letter

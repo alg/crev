@@ -11,6 +11,7 @@ CMD_DIR := ~/.claude/commands
 install: build
 	mkdir -p ~/.local/bin $(SKILL_DIR) $(CMD_DIR)
 	cp crev $(SKILL_DIR)/
+	@if [ "$$(uname -s)" = "Darwin" ]; then codesign -s - -f $(SKILL_DIR)/crev; fi
 	cp claude-skill/SKILL.md $(SKILL_DIR)/
 	cp claude-skill/crev-popup $(SKILL_DIR)/
 	chmod +x $(SKILL_DIR)/crev-popup
