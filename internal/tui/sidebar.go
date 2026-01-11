@@ -16,15 +16,12 @@ func (m Model) viewSidebar(height int) string {
 	var lines []string
 
 	// Calculate visible range with scrolling
-	visibleLines := height - 2 // Account for border
+	visibleLines := height // Content area height (Height() excludes border)
 	if visibleLines < 1 {
 		visibleLines = 1
 	}
 
-	startIdx := 0
-	if m.tree.SelectedIndex >= visibleLines {
-		startIdx = m.tree.SelectedIndex - visibleLines + 1
-	}
+	startIdx := m.sidebarScrollOffset
 	endIdx := startIdx + visibleLines
 	if endIdx > len(m.tree.FlatList) {
 		endIdx = len(m.tree.FlatList)
@@ -157,5 +154,41 @@ func (m Model) getFileStatusIcon(fileIndex int) string {
 		return fileStatsStyle.Render("B")
 	default:
 		return fileStatsStyle.Render("M")
+	}
+}
+
+// ensureSidebarSelectionVisible adjusts scroll offset to keep selection in view
+func (m *Model) ensureSidebarSelectionVisible() {
+	if m.tree == nil {
+		return
+	}
+
+	// Calculate visible height: same as totalContentHeight passed to viewSidebar
+	// (sidebar is side-by-side with main content, not stacked)
+	visibleLines := m.height - 3
+	if visibleLines < 1 {
+		visibleLines = 1
+	}
+
+	// Scroll up if selection is above visible area
+	if m.tree.SelectedIndex < m.sidebarScrollOffset {
+		m.sidebarScrollOffset = m.tree.SelectedIndex
+	}
+
+	// Scroll down if selection is below visible area
+	if m.tree.SelectedIndex >= m.sidebarScrollOffset+visibleLines {
+		m.sidebarScrollOffset = m.tree.SelectedIndex - visibleLines + 1
+	}
+
+	// Clamp scroll offset to valid range
+	maxOffset := len(m.tree.FlatList) - visibleLines
+	if maxOffset < 0 {
+		maxOffset = 0
+	}
+	if m.sidebarScrollOffset > maxOffset {
+		m.sidebarScrollOffset = maxOffset
+	}
+	if m.sidebarScrollOffset < 0 {
+		m.sidebarScrollOffset = 0
 	}
 }

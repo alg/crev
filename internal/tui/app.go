@@ -46,8 +46,9 @@ type Model struct {
 	ready         bool
 
 	// Sidebar state
-	tree         *FileTree
-	sidebarWidth int
+	tree                *FileTree
+	sidebarWidth        int
+	sidebarScrollOffset int
 
 	// File selection state
 	fileIndex int
@@ -189,10 +190,12 @@ func (m Model) updateSidebar(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, m.keys.Down):
 		m.tree.MoveDown()
 		m.selectCurrentTreeNode()
+		m.ensureSidebarSelectionVisible()
 
 	case key.Matches(msg, m.keys.Up):
 		m.tree.MoveUp()
 		m.selectCurrentTreeNode()
+		m.ensureSidebarSelectionVisible()
 
 	case key.Matches(msg, m.keys.Right):
 		// Move focus to main area
@@ -206,6 +209,7 @@ func (m Model) updateSidebar(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.tree.ToggleExpand()
 				// After toggling, select current node if it's a file
 				m.selectCurrentTreeNode()
+				m.ensureSidebarSelectionVisible()
 			} else {
 				// Select file and move to main
 				m.fileIndex = node.FileIndex
