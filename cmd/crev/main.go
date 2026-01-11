@@ -58,6 +58,18 @@ func main() {
 		}
 	}
 
+	// Get git status for all files
+	gitStatus, err := getGitStatus()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error getting git status: %v\n", err)
+		os.Exit(1)
+	}
+
+	if len(gitStatus) == 0 {
+		fmt.Println("No changes to review.")
+		os.Exit(0)
+	}
+
 	// Get git diff
 	diffOutput, err := getGitDiff()
 	if err != nil {
@@ -65,16 +77,85 @@ func main() {
 		os.Exit(1)
 	}
 
-	if strings.TrimSpace(diffOutput) == "" {
-		fmt.Println("No changes to review.")
-		os.Exit(0)
+	// Parse diff
+	var d *diff.Diff
+	if strings.TrimSpace(diffOutput) != "" {
+		d, err = diff.ParseString(diffOutput)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error parsing diff: %v\n", err)
+			os.Exit(1)
+		}
+	} else {
+		d = &diff.Diff{}
 	}
 
-	// Parse diff
-	d, err := diff.ParseString(diffOutput)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error parsing diff: %v\n", err)
-		os.Exit(1)
+	// Build a map of files already in the diff
+	diffFiles := make(map[string]bool)
+	for i := range d.Files {
+		diffFiles[d.Files[i].Path] = true
+		// For deleted files without hunks, populate content from git
+		if d.Files[i].IsDeleted && len(d.Files[i].Hunks) == 0 {
+			if content, err := getFileFromGit(d.Files[i].Path); err == nil {
+				lines := strings.Split(content, "\n")
+				if len(lines) > 0 && lines[len(lines)-1] == "" {
+					lines = lines[:len(lines)-1]
+				}
+				if len(lines) > 0 {
+					hunk := diff.Hunk{
+						OldStart: 1,
+						OldCount: len(lines),
+						NewStart: 0,
+						NewCount: 0,
+						Header:   fmt.Sprintf("@@ -1,%d +0,0 @@ (deleted file)", len(lines)),
+					}
+					for i, line := range lines {
+						hunk.Lines = append(hunk.Lines, diff.Line{
+							Type:    diff.LineRemoved,
+							Content: line,
+							OldNum:  i + 1,
+						})
+					}
+					d.Files[i].Hunks = append(d.Files[i].Hunks, hunk)
+				}
+			}
+		}
+	}
+
+	// Add untracked files from git status
+	for _, status := range gitStatus {
+		if status.Untracked && !diffFiles[status.Path] {
+			file := diff.File{
+				Path:        status.Path,
+				IsNew:       true,
+				IsUntracked: true,
+			}
+			// Read file contents and create a hunk with all lines as additions
+			if content, err := os.ReadFile(status.Path); err == nil {
+				lines := strings.Split(string(content), "\n")
+				// Remove trailing empty line if file ends with newline
+				if len(lines) > 0 && lines[len(lines)-1] == "" {
+					lines = lines[:len(lines)-1]
+				}
+				if len(lines) > 0 {
+					hunk := diff.Hunk{
+						OldStart: 0,
+						OldCount: 0,
+						NewStart: 1,
+						NewCount: len(lines),
+						Header:   fmt.Sprintf("@@ -0,0 +1,%d @@ (new file)", len(lines)),
+					}
+					for i, line := range lines {
+						hunk.Lines = append(hunk.Lines, diff.Line{
+							Type:    diff.LineAdded,
+							Content: line,
+							NewNum:  i + 1,
+						})
+					}
+					file.Hunks = append(file.Hunks, hunk)
+				}
+			}
+			d.Files = append(d.Files, file)
+		}
 	}
 
 	if len(d.Files) == 0 {
@@ -139,28 +220,86 @@ func main() {
 	}
 }
 
-func getGitDiff() (string, error) {
-	// If --staged flag is set, show staged changes
-	if *staged {
-		return getGitDiffStaged()
+// GitFileStatus represents the status of a file from git status
+type GitFileStatus struct {
+	Path      string
+	Staged    bool // Has staged changes
+	Unstaged  bool // Has unstaged changes
+	Untracked bool // File is untracked
+}
+
+func getGitStatus() ([]GitFileStatus, error) {
+	cmd := exec.Command("git", "status", "--porcelain")
+	output, err := cmd.Output()
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			return nil, fmt.Errorf("git status failed: %s", string(exitErr.Stderr))
+		}
+		return nil, err
 	}
 
-	// First try unstaged changes
-	output, err := runGitDiff()
+	var files []GitFileStatus
+	for _, line := range strings.Split(string(output), "\n") {
+		if len(line) < 3 {
+			continue
+		}
+		// git status --porcelain format: XY filename
+		// X = staged status, Y = unstaged status
+		// ?? = untracked
+		x := line[0]
+		y := line[1]
+		path := strings.TrimSpace(line[3:])
+
+		// Handle renamed files (format: R  old -> new)
+		if strings.Contains(path, " -> ") {
+			parts := strings.Split(path, " -> ")
+			path = parts[len(parts)-1]
+		}
+
+		status := GitFileStatus{Path: path}
+		if x == '?' && y == '?' {
+			status.Untracked = true
+		} else {
+			// Staged changes: any non-space, non-? in X column
+			if x != ' ' && x != '?' {
+				status.Staged = true
+			}
+			// Unstaged changes: any non-space in Y column
+			if y != ' ' {
+				status.Unstaged = true
+			}
+		}
+		files = append(files, status)
+	}
+
+	return files, nil
+}
+
+func getGitDiff() (string, error) {
+	// If --staged flag is set, only show staged changes
+	if *staged {
+		return runGitDiff("--cached")
+	}
+
+	// Get all changes: both staged and unstaged
+	stagedDiff, err := runGitDiff("--cached")
 	if err != nil {
 		return "", err
 	}
 
-	// If no unstaged changes, try staged changes
-	if strings.TrimSpace(output) == "" {
-		return getGitDiffStaged()
+	unstagedDiff, err := runGitDiff()
+	if err != nil {
+		return "", err
 	}
 
-	return output, nil
-}
+	// Combine both diffs
+	combined := stagedDiff
+	if combined != "" && unstagedDiff != "" {
+		combined += "\n"
+	}
+	combined += unstagedDiff
 
-func getGitDiffStaged() (string, error) {
-	return runGitDiff("--cached")
+	return combined, nil
 }
 
 func runGitDiff(args ...string) (string, error) {
@@ -173,6 +312,15 @@ func runGitDiff(args ...string) (string, error) {
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			return "", fmt.Errorf("git diff failed: %s", string(exitErr.Stderr))
 		}
+		return "", err
+	}
+	return string(output), nil
+}
+
+func getFileFromGit(path string) (string, error) {
+	cmd := exec.Command("git", "show", "HEAD:"+path)
+	output, err := cmd.Output()
+	if err != nil {
 		return "", err
 	}
 	return string(output), nil

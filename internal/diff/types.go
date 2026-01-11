@@ -42,12 +42,13 @@ func (h *Hunk) Stats() (additions, deletions int) {
 
 // File represents a single file in a diff
 type File struct {
-	Path      string
-	OldPath   string // Different from Path for renames
-	Hunks     []Hunk
-	IsNew     bool
-	IsDeleted bool
-	IsBinary  bool
+	Path       string
+	OldPath    string // Different from Path for renames
+	Hunks      []Hunk
+	IsNew      bool
+	IsDeleted  bool
+	IsBinary   bool
+	IsUntracked bool // File is not tracked by git
 }
 
 // Stats returns the total additions and deletions for the file

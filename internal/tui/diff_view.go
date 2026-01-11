@@ -41,6 +41,10 @@ func (m Model) viewDiffViewWithWidth(height int, width int) string {
 	}
 
 	if len(file.Hunks) == 0 {
+		message := "No changes in this file"
+		if file.IsNew || file.IsUntracked {
+			message = "File is empty"
+		}
 		return lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(borderColor).
@@ -48,7 +52,7 @@ func (m Model) viewDiffViewWithWidth(height int, width int) string {
 			Height(height).
 			Align(lipgloss.Center, lipgloss.Center).
 			Foreground(colorSecondary).
-			Render("No changes in this file")
+			Render(message)
 	}
 
 	var lines []string

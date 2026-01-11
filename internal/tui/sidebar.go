@@ -38,6 +38,7 @@ func (m Model) viewSidebar(height int) string {
 	return m.renderSidebarBox(content, height)
 }
 
+
 // renderSidebarBox wraps content in a styled box
 func (m Model) renderSidebarBox(content string, height int) string {
 	borderColor := colorSecondary
@@ -77,6 +78,8 @@ func (m Model) renderTreeNode(node *TreeNode, selected bool) string {
 		if node.FileIndex >= 0 && node.FileIndex < len(m.diff.Files) {
 			file := m.diff.Files[node.FileIndex]
 			switch {
+			case file.IsUntracked:
+				icon = "?"
 			case file.IsNew:
 				icon = "A"
 			case file.IsDeleted:
@@ -146,6 +149,8 @@ func (m Model) getFileStatusIcon(fileIndex int) string {
 	file := m.diff.Files[fileIndex]
 
 	switch {
+	case file.IsUntracked:
+		return fileStatsStyle.Render("?")
 	case file.IsNew:
 		return fileAddedStyle.Render("A")
 	case file.IsDeleted:
