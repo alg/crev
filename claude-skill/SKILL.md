@@ -10,8 +10,7 @@ Review uncommitted changes using the `crev` TUI in a tmux popup.
 
 ## Workflow
 
-1. **Stage changes**: Stage changes that were created, updated or deleted
-2. **Launch Review**: Run `crev-popup` to open crev in a tmux popup
+1. **Launch Review**: Run `crev-popup` to open crev in a tmux popup
 3. **Process Feedback**: Parse the JSON output and address comments
 
 ## How to Launch

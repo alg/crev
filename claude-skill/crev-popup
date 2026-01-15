@@ -31,7 +31,7 @@ REVIEW_DIR="${1:-$(pwd)}"
 # -w/-h: 90% width/height
 # -d: start in the specified directory
 tmux display-popup -E -w 90% -h 90% -d "$REVIEW_DIR" \
-    "crev --staged -o '$REVIEW_FILE'; exit 0"
+    "crev -o '$REVIEW_FILE'; exit 0"
 
 # Check if review was submitted (file exists and has content)
 if [ -s "$REVIEW_FILE" ]; then
