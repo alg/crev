@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>crev - Code Review</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app">
+    <header id="top-bar">
+      <div class="top-bar-left">
+        <span class="logo">crev</span>
+        <span id="stats"></span>
+      </div>
+      <div class="top-bar-right">
+        <span id="comment-count" class="badge">0 comments</span>
+      </div>
+    </header>
+    <div id="main">
+      <aside id="sidebar">
+        <div class="sidebar-header">Files</div>
+        <div id="file-tree"></div>
+      </aside>
+      <section id="content">
+        <div id="file-header"></div>
+        <div id="diff-view"></div>
+      </section>
+    </div>
+    <footer id="action-bar">
+      <div class="summary-section">
+        <input type="text" id="summary-input" placeholder="Review summary (optional)..." maxlength="500">
+      </div>
+      <div class="action-buttons">
+        <button id="btn-submit" class="btn btn-secondary">Submit</button>
+        <button id="btn-approve" class="btn btn-primary">Approve & Submit</button>
+      </div>
+    </footer>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>

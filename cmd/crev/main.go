@@ -10,6 +10,7 @@ import (
 	"github.com/alg/crev/internal/diff"
 	"github.com/alg/crev/internal/review"
 	"github.com/alg/crev/internal/tui"
+	"github.com/alg/crev/internal/web"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -18,6 +19,7 @@ var (
 	directory  = flag.String("d", "", "Directory to run git diff in (default: current directory)")
 	staged     = flag.Bool("staged", false, "Review staged changes (git diff --cached)")
 	jsonRaw    = flag.Bool("json", false, "Output raw JSON without formatting")
+	webMode    = flag.Bool("web", false, "Open review in web browser")
 	version    = flag.Bool("version", false, "Print version and exit")
 )
 
@@ -166,32 +168,46 @@ func main() {
 	// Get base commit for reference
 	baseCommit := getBaseCommit()
 
-	// Run TUI
-	model := tui.NewModel(d, *outputFile)
-	p := tea.NewProgram(model, tea.WithAltScreen())
+	var rev *review.Review
+	var submitted bool
 
-	finalModel, err := p.Run()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error running TUI: %v\n", err)
-		os.Exit(1)
+	if *webMode {
+		// Run web UI
+		result, err := web.Start(d, baseCommit)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error running web review: %v\n", err)
+			os.Exit(1)
+		}
+		rev = result.Review
+		submitted = result.Submitted
+	} else {
+		// Run TUI
+		model := tui.NewModel(d, *outputFile)
+		p := tea.NewProgram(model, tea.WithAltScreen())
+
+		finalModel, err := p.Run()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error running TUI: %v\n", err)
+			os.Exit(1)
+		}
+
+		m, ok := finalModel.(tui.Model)
+		if !ok {
+			fmt.Fprintf(os.Stderr, "Error: unexpected model type\n")
+			os.Exit(1)
+		}
+
+		submitted = m.WasSubmitted()
+		if submitted {
+			rev = m.GetReview()
+			rev.BaseCommit = baseCommit
+		}
 	}
 
-	// Get the final model
-	m, ok := finalModel.(tui.Model)
-	if !ok {
-		fmt.Fprintf(os.Stderr, "Error: unexpected model type\n")
-		os.Exit(1)
-	}
-
-	// Check if review was submitted
-	if !m.WasSubmitted() {
+	if !submitted {
 		fmt.Println("Review cancelled.")
 		os.Exit(0)
 	}
-
-	// Set base commit on review
-	rev := m.GetReview()
-	rev.BaseCommit = baseCommit
 
 	// Output review
 	pretty := !*jsonRaw
@@ -256,6 +272,21 @@ func getGitStatus() ([]GitFileStatus, error) {
 			path = parts[len(parts)-1]
 		}
 
+		// Skip directory entries (trailing slash) — individual files
+		// within untracked directories are expanded below
+		if strings.HasSuffix(path, "/") {
+			// Expand untracked directory into individual files
+			if x == '?' && y == '?' {
+				dirFiles, err := expandDirectory(path)
+				if err == nil {
+					for _, f := range dirFiles {
+						files = append(files, GitFileStatus{Path: f, Untracked: true})
+					}
+				}
+			}
+			continue
+		}
+
 		status := GitFileStatus{Path: path}
 		if x == '?' && y == '?' {
 			status.Untracked = true
@@ -315,6 +346,26 @@ func runGitDiff(args ...string) (string, error) {
 		return "", err
 	}
 	return string(output), nil
+}
+
+func expandDirectory(dir string) ([]string, error) {
+	var files []string
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	for _, entry := range entries {
+		fullPath := dir + entry.Name()
+		if entry.IsDir() {
+			sub, err := expandDirectory(fullPath + "/")
+			if err == nil {
+				files = append(files, sub...)
+			}
+		} else {
+			files = append(files, fullPath)
+		}
+	}
+	return files, nil
 }
 
 func getFileFromGit(path string) (string, error) {
