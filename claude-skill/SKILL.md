@@ -1,31 +1,31 @@
 ---
 name: review
 description: Request code review for uncommitted changes. Use when asking for review of AI-generated code, reviewing git diff, or when user says "review my changes", "let me review", or "I want to check the changes".
-allowed-tools: Bash(crev-popup)
+allowed-tools: Bash(crev-web)
 ---
 
 # Code Review Skill
 
-Review uncommitted changes using the `crev` TUI in a tmux popup.
+Review uncommitted changes using the `crev` web UI.
 
 ## Workflow
 
-1. **Launch Review**: Run `crev-popup` to open crev in a tmux popup
+1. **Launch Review**: Run `crev-web` to open crev in the browser
 3. **Process Feedback**: Parse the JSON output and address comments
 
 ## How to Launch
 
-Run the crev-popup script which opens crev in a tmux popup:
+Run the crev-web script which opens crev in the browser:
 
 ```bash
-crev-popup
+crev-web
 ```
 
 This will:
-- Open crev in a 90% tmux popup with full TTY
-- Wait for user to review and submit (or cancel)
+- Open crev web UI in the default browser
+- Wait for user to review and submit (or close the tab)
 - Output the review JSON if submitted
-- Output nothing if cancelled (user pressed 'q')
+- Output nothing if cancelled
 
 ## Handling Output
 

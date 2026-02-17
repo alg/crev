@@ -14,9 +14,11 @@ install: build
 	@if [ "$$(uname -s)" = "Darwin" ]; then codesign -s - -f $(SKILL_DIR)/crev; fi
 	cp claude-skill/SKILL.md $(SKILL_DIR)/
 	cp claude-skill/crev-popup $(SKILL_DIR)/
-	chmod +x $(SKILL_DIR)/crev-popup
+	cp scripts/crev-web $(SKILL_DIR)/
+	chmod +x $(SKILL_DIR)/crev-popup $(SKILL_DIR)/crev-web
 	ln -sf $(SKILL_DIR)/crev ~/.local/bin/crev
 	ln -sf $(SKILL_DIR)/crev-popup ~/.local/bin/crev-popup
+	ln -sf $(SKILL_DIR)/crev-web ~/.local/bin/crev-web
 	cp claude-command/crev.md $(CMD_DIR)/
 	@echo "Installed crev to $(SKILL_DIR)"
 	@echo "Installed /crev command to $(CMD_DIR)"

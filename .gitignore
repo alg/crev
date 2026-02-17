@@ -1,1 +1,4 @@
 /crev
+.playwright-mcp
+*.png
+!docs/*.png

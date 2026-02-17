@@ -1,11 +1,11 @@
 ---
-allowed-tools: Bash(crev-popup)
-description: Launch crev TUI for interactive code review
+allowed-tools: Bash(crev-web)
+description: Launch crev web UI for interactive code review
 ---
 
-Launch the crev code review TUI in a tmux popup. Wait for the user to review changes and submit feedback.
+Launch the crev web-based code review UI. Wait for the user to review changes and submit feedback.
 
-Run: `crev-popup`
+Run: `crev-web`
 
 After the review completes:
 

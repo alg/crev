@@ -1,0 +1,27 @@
+#!/bin/bash
+# crev-web: Run crev in web mode and output the review JSON
+#
+# Usage: crev-web [directory]
+#
+# Exit behavior:
+#   - If user submits review: outputs JSON to stdout
+#   - If user cancels (closes browser): outputs nothing, exits with code 0
+
+set -e
+
+REVIEW_FILE=$(mktemp /tmp/crev-review.XXXXXX.json)
+trap "rm -f $REVIEW_FILE" EXIT
+
+# Get the directory to review (default: current directory)
+REVIEW_DIR="${1:-$(pwd)}"
+
+# Run crev in web mode
+cd "$REVIEW_DIR"
+crev --web -o "$REVIEW_FILE"
+
+# Check if review was submitted (file exists and has content)
+if [ -s "$REVIEW_FILE" ]; then
+    echo "=== CREV REVIEW SUBMITTED ==="
+    cat "$REVIEW_FILE"
+    echo "=== END REVIEW ==="
+fi

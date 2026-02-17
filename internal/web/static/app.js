@@ -15,6 +15,9 @@ let state = {
 // --- Init ---
 
 async function init() {
+  initTheme();
+  initSidebarResize();
+
   const resp = await fetch('/api/diff');
   const data = await resp.json();
   state.files = data.files || [];
@@ -31,6 +34,70 @@ async function init() {
 
   document.getElementById('btn-submit').addEventListener('click', () => submitReview(false));
   document.getElementById('btn-approve').addEventListener('click', () => submitReview(true));
+}
+
+// --- Theme ---
+
+function initTheme() {
+  const saved = localStorage.getItem('crev-theme');
+  if (saved) {
+    document.documentElement.dataset.theme = saved;
+  }
+  updateThemeIcon();
+
+  document.getElementById('theme-toggle').addEventListener('click', () => {
+    const current = document.documentElement.dataset.theme;
+    const next = current === 'light' ? 'dark' : 'light';
+    document.documentElement.dataset.theme = next;
+    localStorage.setItem('crev-theme', next);
+    updateThemeIcon();
+  });
+}
+
+function updateThemeIcon() {
+  const btn = document.getElementById('theme-toggle');
+  const isLight = document.documentElement.dataset.theme === 'light';
+  btn.innerHTML = isLight ? '&#9728;' : '&#9790;';
+  btn.title = isLight ? 'Switch to dark theme' : 'Switch to light theme';
+}
+
+// --- Sidebar Resize ---
+
+function initSidebarResize() {
+  const saved = localStorage.getItem('crev-sidebar-width');
+  if (saved) {
+    document.documentElement.style.setProperty('--sidebar-width', saved + 'px');
+  }
+
+  const handle = document.getElementById('sidebar-resize-handle');
+  let dragging = false;
+
+  handle.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    dragging = true;
+    handle.classList.add('dragging');
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (!dragging) return;
+    const sidebar = document.getElementById('sidebar');
+    const min = 150;
+    const max = window.innerWidth / 2;
+    const width = Math.min(max, Math.max(min, e.clientX));
+    document.documentElement.style.setProperty('--sidebar-width', width + 'px');
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (!dragging) return;
+    dragging = false;
+    handle.classList.remove('dragging');
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+    const width = parseInt(getComputedStyle(document.getElementById('sidebar')).width);
+    localStorage.setItem('crev-sidebar-width', width);
+  });
 }
 
 // --- Stats ---
@@ -226,6 +293,8 @@ function renderDiff() {
     return;
   }
 
+  const language = getLanguageFromPath(file.path);
+
   let html = '<table class="diff-table">';
 
   for (const hunk of file.hunks) {
@@ -253,7 +322,7 @@ function renderDiff() {
       html += `<td class="line-prefix ${lineClass}">${prefix}</td>`;
 
       // Content
-      html += `<td class="line-content ${lineClass}">${escapeHtml(line.content)}</td>`;
+      html += `<td class="line-content ${lineClass}">${highlightLine(line.content, language)}</td>`;
       html += '</tr>';
 
       // Show existing comment or editing form below this line
@@ -334,7 +403,7 @@ function renderSavedComment(comment, filePath, lineNum, side) {
     `data-file="${escapeAttr(filePath)}" data-line="${lineNum}" data-side="${side}">Delete</button>`;
   html += `</div></div>`;
 
-  html += `<div class="comment-text">${escapeHtml(comment.text)}</div>`;
+  html += `<div class="comment-text">${formatCommentText(comment.text)}</div>`;
   html += `</div></td></tr>`;
   return html;
 }
@@ -423,6 +492,18 @@ function attachDiffListeners() {
       deleteComment(filePath, lineNum, side);
     });
   });
+
+  // Auto-expand textareas
+  document.querySelectorAll('.comment-textarea').forEach(textarea => {
+    textarea.addEventListener('input', () => autoExpandTextarea(textarea));
+    // Run once for pre-filled text (editing existing comment)
+    autoExpandTextarea(textarea);
+  });
+}
+
+function autoExpandTextarea(textarea) {
+  textarea.style.height = 'auto';
+  textarea.style.height = textarea.scrollHeight + 'px';
 }
 
 // --- Comment Management ---
@@ -501,6 +582,34 @@ async function submitReview(approved) {
   }
 }
 
+// --- Text Formatting ---
+
+function formatCommentText(text) {
+  const parts = [];
+  const regex = /```(\w*)\n([\s\S]*?)```/g;
+  let lastIndex = 0;
+  let match;
+
+  while ((match = regex.exec(text)) !== null) {
+    // Text before the code block
+    if (match.index > lastIndex) {
+      parts.push(`<span>${escapeHtml(text.slice(lastIndex, match.index))}</span>`);
+    }
+    const lang = match[1];
+    const code = match[2];
+    const cls = lang ? ` class="language-${escapeAttr(lang)}"` : '';
+    parts.push(`<pre><code${cls}>${escapeHtml(code)}</code></pre>`);
+    lastIndex = match.index + match[0].length;
+  }
+
+  // Remaining text after last code block
+  if (lastIndex < text.length) {
+    parts.push(`<span>${escapeHtml(text.slice(lastIndex))}</span>`);
+  }
+
+  return parts.join('');
+}
+
 // --- Utilities ---
 
 function escapeHtml(str) {
@@ -518,6 +627,46 @@ function capitalize(str) {
 }
 
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.bmp', '.ico', '.avif']);
+
+// --- Syntax Highlighting ---
+
+const FILE_EXT_TO_LANGUAGE = {
+  '.go': 'go', '.js': 'javascript', '.jsx': 'javascript', '.ts': 'typescript', '.tsx': 'typescript',
+  '.py': 'python', '.rb': 'ruby', '.rs': 'rust', '.java': 'java', '.kt': 'kotlin',
+  '.c': 'c', '.h': 'c', '.cpp': 'cpp', '.hpp': 'cpp', '.cs': 'csharp',
+  '.swift': 'swift', '.m': 'objectivec', '.php': 'php', '.pl': 'perl',
+  '.sh': 'bash', '.bash': 'bash', '.zsh': 'bash', '.fish': 'bash',
+  '.html': 'xml', '.htm': 'xml', '.xml': 'xml', '.svg': 'xml',
+  '.css': 'css', '.scss': 'scss', '.less': 'less',
+  '.json': 'json', '.yaml': 'yaml', '.yml': 'yaml', '.toml': 'ini',
+  '.md': 'markdown', '.sql': 'sql', '.graphql': 'graphql',
+  '.proto': 'protobuf', '.lua': 'lua', '.r': 'r', '.R': 'r',
+  '.ex': 'elixir', '.erl': 'erlang', '.hs': 'haskell', '.ml': 'ocaml',
+  '.scala': 'scala', '.clj': 'clojure', '.mk': 'makefile', '.cmake': 'cmake',
+};
+
+const FILE_NAME_TO_LANGUAGE = {
+  'Makefile': 'makefile', 'Dockerfile': 'dockerfile',
+};
+
+function getLanguageFromPath(filePath) {
+  const name = filePath.split('/').pop();
+  if (FILE_NAME_TO_LANGUAGE[name]) return FILE_NAME_TO_LANGUAGE[name];
+  const dot = name.lastIndexOf('.');
+  if (dot === -1) return null;
+  return FILE_EXT_TO_LANGUAGE[name.substring(dot)] || null;
+}
+
+function highlightLine(content, language) {
+  if (language && typeof hljs !== 'undefined') {
+    try {
+      return hljs.highlight(content, { language, ignoreIllegals: true }).value;
+    } catch (e) {
+      // Language not registered or other error — fall back
+    }
+  }
+  return escapeHtml(content);
+}
 
 function isImageFile(path) {
   const ext = path.substring(path.lastIndexOf('.')).toLowerCase();
