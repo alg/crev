@@ -46,6 +46,7 @@ func Start(d *diff.Diff, baseCommit string) (*Result, error) {
 	}
 
 	mux.HandleFunc("GET /api/diff", h.handleDiff)
+	mux.HandleFunc("GET /api/file", h.handleFile)
 	mux.HandleFunc("POST /api/submit", h.handleSubmit)
 
 	// Serve static files

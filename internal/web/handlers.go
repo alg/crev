@@ -3,6 +3,8 @@ package web
 import (
 	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/alg/crev/internal/diff"
@@ -54,4 +56,41 @@ func (h *handlers) handleSubmit(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]bool{"ok": true})
 
 	h.submitCh <- rev
+}
+
+func (h *handlers) handleFile(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Query().Get("path")
+	if path == "" {
+		http.Error(w, "path parameter required", http.StatusBadRequest)
+		return
+	}
+
+	// Only serve files that are in the diff
+	found := false
+	for _, f := range h.diff.Files {
+		if f.Path == path {
+			found = true
+			break
+		}
+	}
+	if !found {
+		http.Error(w, "file not in review", http.StatusForbidden)
+		return
+	}
+
+	// Prevent path traversal
+	clean := filepath.Clean(path)
+	if filepath.IsAbs(clean) {
+		http.Error(w, "invalid path", http.StatusBadRequest)
+		return
+	}
+
+	data, err := os.ReadFile(clean)
+	if err != nil {
+		http.Error(w, "file not found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", http.DetectContentType(data))
+	w.Write(data)
 }

@@ -207,6 +207,15 @@ function renderDiff() {
   // Diff content
   const diffView = document.getElementById('diff-view');
 
+  if (isImageFile(file.path)) {
+    if (file.is_deleted) {
+      diffView.innerHTML = '<div class="empty-state">Deleted image</div>';
+    } else {
+      diffView.innerHTML = `<div class="image-preview"><img src="/api/file?path=${encodeURIComponent(file.path)}" alt="${escapeAttr(file.path)}"></div>`;
+    }
+    return;
+  }
+
   if (file.is_binary) {
     diffView.innerHTML = '<div class="empty-state">Binary file</div>';
     return;
@@ -506,6 +515,13 @@ function escapeAttr(str) {
 
 function capitalize(str) {
   return str.charAt(0).toUpperCase() + str.slice(1);
+}
+
+const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.bmp', '.ico', '.avif']);
+
+function isImageFile(path) {
+  const ext = path.substring(path.lastIndexOf('.')).toLowerCase();
+  return IMAGE_EXTENSIONS.has(ext);
 }
 
 // --- Start ---
