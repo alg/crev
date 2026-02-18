@@ -9,7 +9,7 @@
 
 set -e
 
-REVIEW_FILE=$(mktemp /tmp/crev-review.XXXXXX.json)
+REVIEW_FILE=$(mktemp /tmp/crev-review.XXXXXXXX)
 trap "rm -f $REVIEW_FILE" EXIT
 
 # Get the directory to review (default: current directory)

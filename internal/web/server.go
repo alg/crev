@@ -25,10 +25,14 @@ type Result struct {
 
 // Start launches the web review server and blocks until submission or cancellation
 func Start(d *diff.Diff, baseCommit string) (*Result, error) {
-	// Pick a random available port
-	listener, err := net.Listen("tcp", "localhost:0")
+	// Use a fixed port so localStorage persists between sessions
+	listener, err := net.Listen("tcp", "localhost:7890")
 	if err != nil {
-		return nil, fmt.Errorf("failed to listen: %w", err)
+		// Fall back to random port if 7890 is busy
+		listener, err = net.Listen("tcp", "localhost:0")
+		if err != nil {
+			return nil, fmt.Errorf("failed to listen: %w", err)
+		}
 	}
 	port := listener.Addr().(*net.TCPAddr).Port
 	url := fmt.Sprintf("http://localhost:%d", port)
